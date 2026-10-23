@@ -23,6 +23,8 @@ och datan lagras i ett Google Sheet som även Fänrik Fjun kan läsa och skriva 
   sedan appen läste arket skrivs inte över. Byter du typ på ett kort i *Nya* till påminnelse
   eller återkommande flyttas det till *Påbörjade*. Påbörjade och avslutade kort blir kvar
   där de är.
+- **Flytt** skriver bara `status` (och `avslutad_datum` när kortet avslutas eller öppnas igen),
+  inget annat på raden.
 - **Mobil:** välj *Visa som → Flikar*, så får du en flik per kolumn i stället för tre kolumner.
 - **Appen visar och ändrar bara arket.** Själva påminnelseutskicken sköter Fänrik Fjun
   med egna rutiner.
@@ -123,7 +125,7 @@ direkt i fliken `Aktiviteter`:
 | `app.py` | Det som syns på skärmen |
 | `test_*.py` | Tester med pytest. De körs automatiskt på GitHub (fliken *Actions*) |
 
-Appen ändrar en rad i taget i arket (lägg till, uppdatera, redigera enskilda fält, ta bort) i stället för att skriva
+Appen ändrar en rad i taget i arket (lägg till, ändra enskilda fält vid redigering och flytt, ta bort) i stället för att skriva
 om allt, så ändringar som Fjun gör samtidigt skrivs inte över.
 
 Lokalt, om du vill: `pip install -r requirements.txt`, sedan `pytest -v` och `streamlit run app.py`.

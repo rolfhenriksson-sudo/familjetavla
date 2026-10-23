@@ -180,6 +180,16 @@ def flytta(kort, steg, idag=None):
     return nytt
 
 
+def flytt_andringar(kort, steg, idag=None):
+    """Bara de fält som ändras när kortet flyttas (status, ev. avslutad_datum).
+
+    Tom dict om kortet redan står vid kanten. Används med lager.andra_falt så att
+    inga andra kolumner skrivs när ett kort flyttas.
+    """
+    flyttat = flytta(kort, steg, idag)
+    return {f: v for f, v in flyttat.items() if kort.get(f, "") != v}
+
+
 def kan_flytta(kort, steg):
     """True om kortet kan flyttas steg kolumner utan att redan stå vid kanten."""
     if kort["status"] not in STATUSAR:

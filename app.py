@@ -161,16 +161,23 @@ def redigera_dialog(kort):
                 st.rerun()
 
 
+def _flytta(kort, steg):
+    """Flyttar kortet genom att bara skriva fälten som ändras (status, avslutad_datum)."""
+    andringar = k.flytt_andringar(kort, steg)
+    if andringar:
+        lager.andra_falt(kort["id"], andringar)
+
+
 def rita_kort(kort):
     with st.container(key=f"kort_{kort['id']}"):
         st.markdown(kort_html(kort), unsafe_allow_html=True)
         vanster, hoger, redigera, radera = st.columns(4)
         if vanster.button("⬅️", key=f"v_{kort['id']}", disabled=not k.kan_flytta(kort, -1),
                           help="Flytta åt vänster"):
-            utfor(lambda: lager.uppdatera(k.flytta(kort, -1)))
+            utfor(lambda: _flytta(kort, -1))
         if hoger.button("➡️", key=f"h_{kort['id']}", disabled=not k.kan_flytta(kort, 1),
                         help="Flytta åt höger"):
-            utfor(lambda: lager.uppdatera(k.flytta(kort, 1)))
+            utfor(lambda: _flytta(kort, 1))
         if redigera.button("✏️", key=f"e_{kort['id']}", help="Redigera kortet"):
             redigera_dialog(kort)
         if radera.button("🗑️", key=f"r_{kort['id']}", help="Ta bort kortet"):

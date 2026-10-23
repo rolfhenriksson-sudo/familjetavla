@@ -261,3 +261,29 @@ def test_redigera_kort_med_okand_typ_i_arket_kan_andras_utan_att_byta_typ():
     assert k.redigera(kort, "Ny titel", "", "annat", "Rolf") == {"titel": "Ny titel"}
     with pytest.raises(ValueError, match="typ"):
         k.redigera(kort, "Ny titel", "", "hemlig", "Rolf")
+
+
+# ------------------------------------------------------------- flytt_andringar
+
+def test_flytt_andringar_ny_till_paborjad_andrar_bara_status():
+    assert k.flytt_andringar(_kort(status="ny"), 1) == {"status": "påbörjad"}
+
+
+def test_flytt_andringar_till_avslutad_satter_status_och_datum():
+    assert k.flytt_andringar(_kort(status="påbörjad"), 1, idag="2026-10-23") == {
+        "status": "avslutad", "avslutad_datum": "2026-10-23"}
+
+
+def test_flytt_andringar_fran_avslutad_tommer_datum():
+    kort = _kort(status="avslutad", avslutad_datum="2026-10-01")
+    assert k.flytt_andringar(kort, -1) == {"status": "påbörjad", "avslutad_datum": ""}
+
+
+def test_flytt_andringar_vid_kanten_ar_tom():
+    assert k.flytt_andringar(_kort(status="ny"), -1) == {}
+    assert k.flytt_andringar(_kort(status="avslutad", avslutad_datum="2026-10-01"), 1) == {}
+
+
+def test_flytt_andringar_matchar_flytta():
+    kort = _kort(status="påbörjad", ordning="2", förälder_id="p")
+    assert {**kort, **k.flytt_andringar(kort, 1, idag="2026-10-23")} == k.flytta(kort, 1, idag="2026-10-23")

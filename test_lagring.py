@@ -361,3 +361,47 @@ def test_redigera_kort_raderat_kort_ger_lagerfel(lager):
     lager.ta_bort(kort["id"])
     with pytest.raises(lagring.LagerFel):
         lagring.redigera_kort(lager, kort, "Ny", "", "privat", "Rolf")
+
+
+# ------------------------------------------------------------- flytta med andra_falt (båda lagren)
+
+def test_flytta_skriver_bara_status_och_bevarar_det_andra_ändrat(lager):
+    kort = _lagg(lager, status="ny")
+    # Efter att appen läste kortet ändrar Fjun andra kolumner på samma rad
+    lager.andra_falt(kort["id"], {"ordning": "9", "beskrivning": "Fjuns text", "förälder_id": "p2"})
+    lager.andra_falt(kort["id"], k.flytt_andringar(kort, 1))
+    sparat = lager.alla()[0]
+    assert sparat["status"] == "påbörjad"
+    assert sparat["ordning"] == "9" and sparat["beskrivning"] == "Fjuns text"
+    assert sparat["förälder_id"] == "p2" and sparat["skapad_av"] == "fjun"
+
+
+def test_flytta_till_avslutad_och_tillbaka_hanterar_avslutad_datum(lager):
+    kort = _lagg(lager, status="påbörjad")
+    lager.andra_falt(kort["id"], k.flytt_andringar(kort, 1, idag="2026-10-23"))
+    klar = lager.alla()[0]
+    assert (klar["status"], klar["avslutad_datum"]) == ("avslutad", "2026-10-23")
+    lager.andra_falt(kort["id"], k.flytt_andringar(klar, -1))
+    tillbaka = lager.alla()[0]
+    assert (tillbaka["status"], tillbaka["avslutad_datum"]) == ("påbörjad", "")
+
+
+def test_flytta_sheets_skriver_en_rad_och_rör_inte_andra_rader():
+    flik = LatsasFlik(k.FALT)
+    lager = lagring.SheetsLager(flik)
+    a = _lagg(lager, id="aaaa0001", titel="A")
+    b = _lagg(lager, id="bbbb0002", titel="B")
+    flik.anrop.clear()
+    fore_a = list(flik.rader[1])
+    lager.andra_falt(b["id"], k.flytt_andringar(b, 1))
+    assert flik.anrop == [("update", "A3:M3", "RAW")]
+    assert flik.rader[1] == fore_a
+    assert flik.rader[2][k.FALT.index("status")] == "påbörjad"
+    assert flik.rader[2][k.FALT.index("ordning")] == "4"
+
+
+def test_regeln_för_typbyte_i_nya_gäller_fortfarande_efter_flytt(lager):
+    kort = _lagg(lager, status="ny")
+    lagring.redigera_kort(lager, kort, "Original", "Besk", "påminnelse", "Rolf", "", "2026-10-20")
+    assert lager.alla()[0]["status"] == "påbörjad"
+    assert k.nytt_kort("X", "", "återkommande")["status"] == "påbörjad"

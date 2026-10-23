@@ -81,3 +81,16 @@ def test_redigera_andrar_inget_innan_man_sparar(app, tmp_path):
     _oppna_redigera(app, "ex000001")
     assert lagring.JsonLager(tmp_path / "kort.json").alla() == fore
     assert [h.value for h in app.header] == ["Nya (1)", "Påbörjade (3)", "Avslutade (1)"]
+
+
+def test_flytta_med_knapp_skriver_bara_status(app, tmp_path):
+    import lagring
+    fil = lagring.JsonLager(tmp_path / "kort.json")
+    # Fjun ändrar ordning på kortet efter att appen läste det
+    fil.andra_falt("ex000001", {"ordning": "5"})
+    [b for b in app.button if b.key == "h_ex000001"][0].click().run()
+    assert not app.exception
+    kort = {x["id"]: x for x in fil.alla()}
+    assert kort["ex000001"]["status"] == "påbörjad"
+    assert kort["ex000001"]["ordning"] == "5"
+    assert kort["ex000002"]["status"] == "påbörjad"  # övriga kort orörda
