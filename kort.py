@@ -215,8 +215,18 @@ def i_status(kortlista, status):
 
 
 def avslutade_id(kortlista):
-    """id:n på alla avslutade kort (för 'rensa avslutade')."""
-    return [k["id"] for k in kortlista if k["status"] == "avslutad"]
+    """id:n som tas bort av 'rensa avslutade'.
+
+    Det är de avslutade korten på tavlan (vanliga kort och projekt) samt alla pass
+    som hör till de avslutade projekten. Avslutade pass i ett projekt som
+    inte är klart rensas aldrig.
+    """
+    ids = []
+    for kort in tavelkort(kortlista):
+        if kort["status"] == "avslutad":
+            ids += [p["id"] for p in passen_till(kortlista, kort["id"])]
+            ids.append(kort["id"])
+    return ids
 
 
 def hitta(kortlista, kort_id):
@@ -225,3 +235,167 @@ def hitta(kortlista, kort_id):
         if k["id"] == kort_id:
             return k
     return None
+
+
+# ---------------------------------------------------------------- projekt och pass
+#
+# Ett pass är ett kort vars förälder_id pekar på ett annat kort (projektet).
+# Ett projekt är ett kort som har minst ett pass. Passen visas inte som egna
+# kort på tavlan, och projektets status följer passen.
+
+
+def ar_pass(kort):
+    """True om kortet har ett förälder_id (oavsett om föräldern finns)."""
+    return bool(kort["förälder_id"])
+
+
+def _giltiga_projekt(kortlista):
+    """{id: kort} för kort som kan vara förälder: de är inte själva pass."""
+    return {x["id"]: x for x in kortlista if x["id"] and not ar_pass(x)}
+
+
+def ar_foraldralost(kort, kortlista):
+    """True om kortet är ett pass vars förälder saknas eller inte kan vara förälder.
+
+    Det gäller när föräldern är borttagen, när kortet pekar på sig själv eller
+    när föräldern själv är ett pass. Sådana kort behandlas som vanliga kort
+    så att de aldrig försvinner från tavlan.
+    """
+    return ar_pass(kort) and kort["förälder_id"] not in _giltiga_projekt(kortlista)
+
+
+def tavelkort(kortlista):
+    """De kort som visas på tavlan: vanliga kort, projekt och föräldralösa pass."""
+    giltiga = _giltiga_projekt(kortlista)
+    return [x for x in kortlista if not ar_pass(x) or x["förälder_id"] not in giltiga]
+
+
+def passen_till(kortlista, projekt_id):
+    """Projektets pass i ordning (ordning 1, 2, 3 ...).
+
+    Pass utan tal i ordning hamnar sist, och pass med samma ordning behåller
+    den inbördes ordning de har i arket. Tom lista om projekt_id inte är ett
+    giltigt projekt (alltså inte själv ett pass).
+    """
+    if not projekt_id or projekt_id not in _giltiga_projekt(kortlista):
+        return []
+    pass_ = [x for x in kortlista if x["förälder_id"] == projekt_id and x["id"] != projekt_id]
+    return sorted(pass_, key=_ordningstal)  # sorted är stabil
+
+
+def ar_projekt(kort, kortlista):
+    """True om kortet är ett projekt, alltså har minst ett pass."""
+    return not ar_pass(kort) and bool(passen_till(kortlista, kort["id"]))
+
+
+def framsteg(pass_lista):
+    """(klara, totalt) för en lista pass."""
+    return sum(1 for p in pass_lista if p["status"] == "avslutad"), len(pass_lista)
+
+
+def framsteg_text(pass_lista):
+    klara, totalt = framsteg(pass_lista)
+    return f"{klara} av {totalt} pass klara"
+
+
+def projektstatus(pass_lista, typ=""):
+    """Projektets status utifrån passen, eller None om det inte finns några pass.
+
+    Inget pass påbörjat eller avslutat -> 'ny'. Minst ett påbörjat eller avslutat
+    men inte alla avslutade -> 'påbörjad'. Alla avslutade -> 'avslutad'.
+    Ett pass med okänd status räknas som 'ny'.
+    Påminnelser och återkommande projekt står aldrig i 'ny' (samma regel som
+    för vanliga kort), utan i 'påbörjad' tills alla pass är klara.
+    """
+    if not pass_lista:
+        return None
+    statusar = [p["status"] for p in pass_lista]
+    if all(s == "avslutad" for s in statusar):
+        return "avslutad"
+    if any(s in ("påbörjad", "avslutad") for s in statusar) or typ in DIREKT_PABORJAD:
+        return "påbörjad"
+    return "ny"
+
+
+def status_andringar(kort, ny_status, idag=None):
+    """Bara de fält som ändras när kortet får en ny status (status, avslutad_datum).
+
+    avslutad_datum sätts när kortet blir avslutat och töms när det lämnar
+    'avslutad'. Tom dict om statusen redan stämmer.
+    """
+    if ny_status not in STATUSAR:
+        raise ValueError(f"Okänd status: {ny_status}")
+    nya = {"status": ny_status}
+    if ny_status == "avslutad":
+        if kort["status"] != "avslutad":
+            nya["avslutad_datum"] = datum_text(idag or date.today())
+    else:
+        nya["avslutad_datum"] = ""
+    return {f: v for f, v in nya.items() if kort.get(f, "") != v}
+
+
+def projekt_andringar(projekt, pass_lista, idag=None):
+    """Fälten som ska skrivas på projektkortet så att statusen följer passen."""
+    ny_status = projektstatus(pass_lista, projekt["typ"])
+    if ny_status is None or ny_status == projekt["status"]:
+        return {}
+    return status_andringar(projekt, ny_status, idag)
+
+
+def nytt_pass(projekt, titel, beskrivning="", startdatum="", slutdatum="",
+              ordning=1, skapad_av="appen"):
+    """Skapar ett nytt pass i projektet. Typ och ansvarig ärvs från projektet."""
+    pass_ = nytt_kort(titel, beskrivning, projekt["typ"] if projekt["typ"] in TYPER else "privat",
+                      projekt["ansvarig"], startdatum, slutdatum, "", skapad_av)
+    pass_.update({
+        "typ": projekt["typ"],
+        "status": "ny",
+        "förälder_id": projekt["id"],
+        "ordning": str(ordning),
+    })
+    return pass_
+
+
+def ordningsandringar(ordnade_id, pass_lista):
+    """{id: {'ordning': 'n'}} för de pass vars ordning inte redan är 1, 2, 3 ... i angiven följd."""
+    nu = {p["id"]: p["ordning"] for p in pass_lista}
+    return {i: {"ordning": str(n)} for n, i in enumerate(ordnade_id, start=1)
+            if i in nu and nu[i] != str(n)}
+
+
+def pass_efter_infogning(pass_lista, fore_id=None):
+    """Planerar ett nytt pass: (ordning för det nya, ändringar för de gamla).
+
+    Det nya passet läggs först före passet fore_id, eller sist om fore_id är None
+    eller okänt. De gamla passen numreras om till 1, 2, 3 ... men bara de vars
+    ordning faktiskt ändras tas med.
+    """
+    sorterade = sorted(pass_lista, key=_ordningstal)
+    ordnade = [p["id"] for p in sorterade]
+    plats = ordnade.index(fore_id) if fore_id in ordnade else len(ordnade)
+    # Det nya passet får platsen plats+1. De som står efter skjuts ett steg.
+    ordnat_med_lucka = ordnade[:plats] + [None] + ordnade[plats:]
+    andringar = {}
+    nu = {p["id"]: p["ordning"] for p in sorterade}
+    for n, i in enumerate(ordnat_med_lucka, start=1):
+        if i is not None and nu[i] != str(n):
+            andringar[i] = {"ordning": str(n)}
+    return plats + 1, andringar
+
+
+def flytta_pass(pass_lista, pass_id, steg):
+    """Ändringar av ordning när ett pass flyttas steg platser (-1 upp, +1 ned).
+
+    Tom dict om passet redan står vid kanten eller inte finns. Hela listan
+    numreras om till 1, 2, 3 ..., men bara de pass vars ordning ändras tas med.
+    """
+    sorterade = sorted(pass_lista, key=_ordningstal)
+    ordnade = [p["id"] for p in sorterade]
+    if pass_id not in ordnade:
+        return {}
+    nu = ordnade.index(pass_id)
+    mal = nu + steg
+    if not 0 <= mal < len(ordnade):
+        return {}
+    ordnade[nu], ordnade[mal] = ordnade[mal], ordnade[nu]
+    return ordningsandringar(ordnade, sorterade)

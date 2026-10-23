@@ -259,6 +259,183 @@ def redigera_kort(lager, kort, titel, beskrivning, typ, ansvarig,
     return andringar
 
 
+# ---------------------------------------------------------------- projekt och pass
+#
+# Alla funktioner här läser arket på nytt innan de skriver, skriver bara de fält
+# som ändras och bara på rätt rad. Efter varje ändring av pass synkas projektets
+# status, så att arket (och Fänrik Fjun) ser samma sak som tavlan.
+
+def _hitta_eller_fel(kortlista, kort_id, vad="kortet"):
+    kort = k.hitta(kortlista, kort_id)
+    if kort is None:
+        raise LagerFel(f"Hittar inget {vad} med id {kort_id} (har någon tagit bort det?)")
+    return kort
+
+
+def _skriv_andringar(lager, andringar_per_id):
+    for kort_id, andringar in andringar_per_id.items():
+        if andringar:
+            lager.andra_falt(kort_id, andringar)
+
+
+def synka_projekt(lager, projekt_id, kortlista=None, idag=None):
+    """Skriver projektets status (och avslutad_datum) om den inte följer passen.
+
+    Gör ingenting om kortet inte har några pass. Returnerar dicten med skrivna fält.
+    """
+    kortlista = lager.alla() if kortlista is None else kortlista
+    projekt = k.hitta(kortlista, projekt_id)
+    if projekt is None or k.ar_pass(projekt):
+        return {}
+    andringar = k.projekt_andringar(projekt, k.passen_till(kortlista, projekt_id), idag)
+    if andringar:
+        lager.andra_falt(projekt_id, andringar)
+    return andringar
+
+
+def synka_alla(lager, kortlista, idag=None):
+    """Synkar statusen för alla projekt. Returnerar (kortlista med nya statusar, fel).
+
+    Misslyckas en skrivning (t.ex. nätverksfel) visas ändå rätt status på
+    tavlan, och felet returneras i listan så att appen kan nämna det.
+    """
+    fel = []
+    resultat = list(kortlista)
+    for nr, kort in enumerate(kortlista):
+        if k.ar_pass(kort):
+            continue
+        andringar = k.projekt_andringar(kort, k.passen_till(kortlista, kort["id"]), idag)
+        if not andringar:
+            continue
+        try:
+            lager.andra_falt(kort["id"], andringar)
+        except Exception as e:  # nätverk, borttagen rad m.m.: tavlan ska ändå gå att visa
+            fel.append(f"{kort['titel']}: {e}")
+        resultat[nr] = k.normalisera({**kort, **andringar})
+    return resultat, fel
+
+
+def lagg_till_pass(lager, projekt_id, titel, beskrivning="", startdatum="",
+                   slutdatum="", fore_id=None, idag=None):
+    """Lägger till ett pass i projektet (sist, eller före passet fore_id).
+
+    Ett vanligt kort blir ett projekt av sitt första pass. Passet ärver typ och
+    ansvarig. Bara de gamla passen vars ordning ändras skrivs om (inget om
+    passet läggs sist och ordningen redan är 1, 2, 3 ...).
+    Returnerar det nya passet.
+    """
+    kortlista = lager.alla()
+    projekt = _hitta_eller_fel(kortlista, projekt_id, "projekt")
+    if k.ar_pass(projekt):
+        raise ValueError("Ett pass kan inte själv ha pass")
+    gamla = k.passen_till(kortlista, projekt_id)
+    ordning, andringar = k.pass_efter_infogning(gamla, fore_id)
+    nytt = k.nytt_pass(projekt, titel, beskrivning, startdatum, slutdatum, ordning)  # kan ge ValueError
+    _skriv_andringar(lager, andringar)
+    lager.lagg_till(nytt)
+    synka_projekt(lager, projekt_id, idag=idag)
+    return nytt
+
+
+def skapa_projekt(lager, titel, beskrivning="", typ="privat", ansvarig="Rolf",
+                  startdatum="", slutdatum="", aterkommande="", pass_titlar=(),
+                  skapad_av="appen", idag=None):
+    """Skapar ett kort och, om pass_titlar anges, projektets första pass i den ordningen.
+
+    Allt valideras innan något skrivs. Returnerar (projektkortet, lista med pass).
+    """
+    projekt = k.nytt_kort(titel, beskrivning, typ, ansvarig, startdatum, slutdatum,
+                          aterkommande, skapad_av)
+    titlar = [t.strip() for t in pass_titlar if t and t.strip()]
+    pass_ = [k.nytt_pass(projekt, t, ordning=n, skapad_av=skapad_av)
+             for n, t in enumerate(titlar, start=1)]
+    lager.lagg_till(projekt)
+    for p in pass_:
+        lager.lagg_till(p)
+    if pass_:
+        synka_projekt(lager, projekt["id"], idag=idag)
+    return projekt, pass_
+
+
+def _pass_och_projekt(lager, pass_id):
+    kortlista = lager.alla()
+    pass_ = _hitta_eller_fel(kortlista, pass_id, "pass")
+    return kortlista, pass_
+
+
+def satt_pass_status(lager, pass_id, status, idag=None):
+    """Ändrar bara status (och avslutad_datum) på passet och synkar projektet."""
+    kortlista, pass_ = _pass_och_projekt(lager, pass_id)
+    andringar = k.status_andringar(pass_, status, idag)
+    if andringar:
+        lager.andra_falt(pass_id, andringar)
+    if pass_["förälder_id"]:
+        synka_projekt(lager, pass_["förälder_id"], idag=idag)
+    return andringar
+
+
+def flytta_pass(lager, pass_id, steg):
+    """Flyttar passet upp (-1) eller ned (+1). Bara ordning skrivs, och bara på pass som byter plats."""
+    kortlista, pass_ = _pass_och_projekt(lager, pass_id)
+    andringar = k.flytta_pass(k.passen_till(kortlista, pass_["förälder_id"]), pass_id, steg)
+    _skriv_andringar(lager, andringar)
+    return andringar
+
+
+def redigera_pass(lager, pass_id, titel, beskrivning="", startdatum="", slutdatum=""):
+    """Ändrar titel, beskrivning och datum på ett pass. Typ, status och ordning rörs inte."""
+    kortlista, pass_ = _pass_och_projekt(lager, pass_id)
+    andringar = k.redigera(pass_, titel, beskrivning, pass_["typ"], pass_["ansvarig"],
+                           startdatum, slutdatum, pass_["återkommande"])
+    if andringar:
+        lager.andra_falt(pass_id, andringar)
+    return andringar
+
+
+def ta_bort_pass(lager, pass_id, idag=None):
+    """Tar bort ett pass. Projektets status räknas om utifrån de pass som finns kvar."""
+    kortlista, pass_ = _pass_och_projekt(lager, pass_id)
+    lager.ta_bort(pass_id)
+    if pass_["förälder_id"]:
+        synka_projekt(lager, pass_["förälder_id"], idag=idag)
+
+
+def ta_bort_projekt(lager, projekt_id):
+    """Tar bort projektet och alla dess pass (passen först). Returnerar antal borttagna kort."""
+    kortlista = lager.alla()
+    projekt = _hitta_eller_fel(kortlista, projekt_id, "projekt")
+    ids = [p["id"] for p in k.passen_till(kortlista, projekt_id)] + [projekt["id"]]
+    lager.ta_bort_flera(ids)
+    return len(ids)
+
+
+def uppdatera_projektets_typ(lager, projekt_id, kortlista=None):
+    """Ger passen samma typ som projektet (bara de som avviker skrivs)."""
+    kortlista = lager.alla() if kortlista is None else kortlista
+    projekt = k.hitta(kortlista, projekt_id)
+    if projekt is None:
+        return
+    for p in k.passen_till(kortlista, projekt_id):
+        if p["typ"] != projekt["typ"]:
+            lager.andra_falt(p["id"], {"typ": projekt["typ"]})
+
+
+def redigera_projekt(lager, kort, titel, beskrivning, typ, ansvarig,
+                     startdatum="", slutdatum="", aterkommande=""):
+    """Som redigera_kort, men passen får också projektets nya typ, och statusen synkas.
+
+    Gäller även ett vanligt kort (utan pass), då är det samma sak som redigera_kort.
+    """
+    andringar = redigera_kort(lager, kort, titel, beskrivning, typ, ansvarig,
+                              startdatum, slutdatum, aterkommande)
+    if "typ" in andringar:
+        uppdatera_projektets_typ(lager, kort["id"])
+    kortlista = lager.alla()
+    if k.passen_till(kortlista, kort["id"]):
+        synka_projekt(lager, kort["id"], kortlista)
+    return andringar
+
+
 # ---------------------------------------------------------------- val av lager
 
 def las_konfiguration(secrets=None, miljo=None):

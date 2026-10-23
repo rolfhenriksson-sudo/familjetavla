@@ -28,9 +28,48 @@ och datan lagras i ett Google Sheet som även Fänrik Fjun kan läsa och skriva 
 - **Mobil:** välj *Visa som → Flikar*, så får du en flik per kolumn i stället för tre kolumner.
 - **Appen visar och ändrar bara arket.** Själva påminnelseutskicken sköter Fänrik Fjun
   med egna rutiner.
-- Kolumnerna `förälder_id` och `ordning` finns i arket och bevaras av appen. De är en
-  förberedelse för huvud- och underaktiviteter (projekt med ordnade pass) i version 2.
-  I version 1 visas alla kort platt.
+
+## Projekt och pass (version 2)
+
+Ett **projekt** är ett kort med minst ett **pass** (underaktivitet). Pass är rader i samma flik
+med `förälder_id` = projektets `id` och `ordning` = 1, 2, 3 …
+
+- **På tavlan** syns bara projektkortet, med raden *"X av Y pass klara"* och en framstegsstapel.
+  Passen visas inte som egna kort. Öppna **📋 Pass** på kortet för att se dem i ordning.
+- **I passlistan** kan du bocka av ett pass (✅), markera det som påbörjat (🔄, tryck igen för att
+  ångra), flytta det upp eller ner (⬆️ ⬇️), redigera titel och datum (✏️), ta bort det (🗑️) och
+  lägga till ett nytt pass sist eller före ett annat. Pass har samma statusar som vanliga kort
+  (`ny`, `påbörjad`, `avslutad`) och egna valfria start- och slutdatum.
+- **Typ och färg ärvs** från projektet. Pass har inget typval, och ändrar du projektets typ får
+  passen den nya typen.
+- **Projektets status styrs av passen** och kan inte flyttas för hand (pilarna är avstängda):
+  inget pass påbörjat eller klart = *Nya*, minst ett påbörjat eller klart men inte alla = *Påbörjade*,
+  alla klara = *Avslutade*. Ett projekt av typen påminnelse eller återkommande ligger som minst
+  *Påbörjade*. Statusen skrivs till arket när den ändras (och `avslutad_datum` när projektet
+  avslutas eller öppnas igen), så att arket och appen visar samma sak.
+- **Skapa projekt:** i *➕ Nytt kort* kan du skriva pass, ett per rad. Ett vanligt kort blir ett
+  projekt när du lägger till dess första pass (fältet *Första pass* när du redigerar kortet).
+  Ett projekt utan pass är bara ett vanligt kort. Tar du bort det sista passet blir projektet
+  ett vanligt kort igen och behåller sin status.
+- **Ta bort projekt** (🗑️) frågar först och tar bort projektet **tillsammans med alla dess pass**.
+  **🧹 Rensa avslutade** tar bort avslutade kort och avslutade projekt med deras pass.
+- **Trasig data:** ett pass vars projekt saknas visas som ett vanligt kort i sin egen status,
+  och en rad längst ner talar om hur många pass som saknar projekt. Ett pass kan inte ha ett pass som förälder. Pass med
+  ogiltig `ordning` hamnar sist. Appen kraschar inte.
+- **Appen skriver bara fälten den ändrat,** på rätt rad. Det gäller även `förälder_id` och
+  `ordning`: när ett pass sätts in före ett annat numreras bara de pass vars `ordning` ändras om.
+
+### Så skriver Fjun projekt och pass
+
+1. Skapa projektraden som ett vanligt kort (`förälder_id` och `ordning` tomma).
+2. Lägg till en rad per pass: `förälder_id` = projektets `id`, `ordning` = `1`, `2`, `3` … (som text),
+   `status` = `ny` (eller `påbörjad`/`avslutad` för pass som redan är igång eller klara),
+   `typ` samma som projektet och `skapad_av` = `fjun`.
+3. Projektradens `status` behöver Fjun inte sätta. Appen räknar ut den från passen vid nästa
+   visning och skriver den till arket. Vill Fjun läsa statusen direkt: avslutad = alla pass avslutade.
+4. Pass i pass stöds inte (ett pass har aldrig egna pass). Radera ett projekt genom att radera
+   passen och därefter projektraden.
+
 
 ## Prova direkt i Codespaces (ingen inloggning)
 
@@ -120,12 +159,12 @@ direkt i fliken `Aktiviteter`:
 
 | Fil | Vad |
 |---|---|
-| `kort.py` | Ren logik: kort, flytt, färger, regler, validering |
+| `kort.py` | Ren logik: kort, flytt, färger, regler, validering, projekt och pass (status, ordning, framsteg) |
 | `lagring.py` | `JsonLager` (lokalt) och `SheetsLager` (Google Sheets) med samma gränssnitt |
 | `app.py` | Det som syns på skärmen |
 | `test_*.py` | Tester med pytest. De körs automatiskt på GitHub (fliken *Actions*) |
 
-Appen ändrar en rad i taget i arket (lägg till, ändra enskilda fält vid redigering och flytt, ta bort) i stället för att skriva
+Appen ändrar en rad i taget i arket (lägg till, ändra enskilda fält vid redigering, flytt och passbockning, ta bort) i stället för att skriva
 om allt, så ändringar som Fjun gör samtidigt skrivs inte över.
 
 Lokalt, om du vill: `pip install -r requirements.txt`, sedan `pytest -v` och `streamlit run app.py`.
