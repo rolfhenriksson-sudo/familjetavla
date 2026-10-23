@@ -115,6 +115,51 @@ def nytt_kort(titel, beskrivning="", typ="privat", ansvarig="Rolf",
     return kort
 
 
+# Fält som kan ändras när man redigerar ett kort. Alla andra kolumner
+# (id, status, förälder_id, ordning, skapad_av, avslutad_datum ...) rörs inte.
+REDIGERBARA = ["titel", "beskrivning", "typ", "ansvarig",
+               "startdatum", "slutdatum", "återkommande"]
+
+
+def redigera(kort, titel, beskrivning, typ, ansvarig, startdatum="",
+             slutdatum="", aterkommande=""):
+    """Returnerar en dict med BARA de fält som ändras när kortet redigeras.
+
+    Tom dict betyder att inget ändrades. Regler:
+      - titel får inte vara tom, typen måste vara känd och slutdatum
+        får inte ligga före startdatum (ValueError med svenskt meddelande)
+      - status och avslutad_datum ändras aldrig, utom att ett kort i 'ny'
+        som byter typ till påminnelse eller återkommande flyttas till
+        'påbörjad' (samma regel som för nya kort). Ett kort som redan är
+        påbörjat eller avslutat blir kvar där det är.
+      - 'återkommande'-texten ändras bara när typen är återkommande;
+        annars lämnas den som den är
+    """
+    titel = (titel or "").strip()
+    if not titel:
+        raise ValueError("Titel får inte vara tom")
+    typ = (typ or "").strip()
+    if typ not in TYPER and typ != kort["typ"]:  # en redan okänd typ i arket får vara kvar
+        raise ValueError(f"Okänd typ: {typ}")
+    start = datum_text(startdatum)
+    slut = datum_text(slutdatum)
+    if start and slut and slut < start:
+        raise ValueError("Slutdatum kan inte ligga före startdatum")
+    nya = {
+        "titel": titel,
+        "beskrivning": (beskrivning or "").strip(),
+        "typ": typ,
+        "ansvarig": (ansvarig or "").strip() or ANVANDARE[0],
+        "startdatum": start,
+        "slutdatum": slut,
+    }
+    if typ == "återkommande":
+        nya["återkommande"] = (aterkommande or "").strip()
+    if kort["status"] == "ny" and typ != kort["typ"] and typ in DIREKT_PABORJAD:
+        nya["status"] = "påbörjad"
+    return {falt: varde for falt, varde in nya.items() if kort.get(falt, "") != varde}
+
+
 def flytta(kort, steg, idag=None):
     """Returnerar en kopia av kortet flyttad steg kolumner (-1 vänster, +1 höger).
 
@@ -133,6 +178,16 @@ def flytta(kort, steg, idag=None):
     else:
         nytt["avslutad_datum"] = ""
     return nytt
+
+
+def flytt_andringar(kort, steg, idag=None):
+    """Bara de fält som ändras när kortet flyttas (status, ev. avslutad_datum).
+
+    Tom dict om kortet redan står vid kanten. Används med lager.andra_falt så att
+    inga andra kolumner skrivs när ett kort flyttas.
+    """
+    flyttat = flytta(kort, steg, idag)
+    return {f: v for f, v in flyttat.items() if kort.get(f, "") != v}
 
 
 def kan_flytta(kort, steg):

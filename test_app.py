@@ -42,3 +42,55 @@ def test_lagg_till_kort(app):
 def test_tom_titel_ger_varning(app):
     app.button[0].click().run()
     assert any("Titel" in w.value for w in app.warning)
+
+
+def _oppna_redigera(app, kort_id):
+    [b for b in app.button if b.key == f"e_{kort_id}"][0].click().run()
+    assert not app.exception
+
+
+def _i_dialogen(widgets):
+    """Bara reglagen i redigeringsdialogen (inte formuläret 'Nytt kort')."""
+    return [w for w in widgets if (w.form_id or "").startswith("redigera_")]
+
+
+def _spara_knapp(app):
+    return [b for b in app.button if b.label == "Spara"][0]
+
+
+# Obs: själva "Spara" i dialogen körs som ett fragment i webbläsaren, vilket
+# AppTest inte kan återskapa. Sparlogiken testas därför i test_kort.py och
+# test_lagring.py (lagring.redigera_kort mot båda lagren).
+
+
+def test_redigera_dialogen_visar_kortets_nuvarande_varden(app):
+    _oppna_redigera(app, "ex000004")  # återkommande kort med start- och slutdatum
+    titel = [t for t in _i_dialogen(app.text_input) if t.label == "Titel"][0]
+    assert titel.value == "EXEMPEL: Ring Peter eller Zacka"
+    typ = [s for s in _i_dialogen(app.selectbox) if s.label == "Typ"][0]
+    assert typ.value == "återkommande"
+    start, slut = _i_dialogen(app.date_input)
+    assert str(start.value) == "2026-10-24" and str(slut.value) == "2026-10-24"
+    assert [t.value for t in _i_dialogen(app.text_input) if t.label.startswith("Återkommande")] == ["varje lördag"]
+    assert _spara_knapp(app)
+
+
+def test_redigera_andrar_inget_innan_man_sparar(app, tmp_path):
+    import lagring
+    fore = lagring.JsonLager(tmp_path / "kort.json").alla()
+    _oppna_redigera(app, "ex000001")
+    assert lagring.JsonLager(tmp_path / "kort.json").alla() == fore
+    assert [h.value for h in app.header] == ["Nya (1)", "Påbörjade (3)", "Avslutade (1)"]
+
+
+def test_flytta_med_knapp_skriver_bara_status(app, tmp_path):
+    import lagring
+    fil = lagring.JsonLager(tmp_path / "kort.json")
+    # Fjun ändrar ordning på kortet efter att appen läste det
+    fil.andra_falt("ex000001", {"ordning": "5"})
+    [b for b in app.button if b.key == "h_ex000001"][0].click().run()
+    assert not app.exception
+    kort = {x["id"]: x for x in fil.alla()}
+    assert kort["ex000001"]["status"] == "påbörjad"
+    assert kort["ex000001"]["ordning"] == "5"
+    assert kort["ex000002"]["status"] == "påbörjad"  # övriga kort orörda
