@@ -485,6 +485,18 @@ def valj_lager(secrets=None, miljo=None, fil=None):
     return _sheets_lager(nyckel, ark_id)
 
 
+def ar_sheets_lage(secrets=None, miljo=None):
+    """Sant om appen är konfigurerad för Google Sheets. Ansluter inte och läser ingen data."""
+    miljo = miljo if miljo is not None else os.environ
+    if (miljo.get(ENV_LAGE) or "").lower() == "lokal":
+        return False
+    try:
+        nyckel, ark_id = las_konfiguration(secrets, miljo)
+    except LagerFel:
+        return True  # felaktig nyckel: avsikten var Sheets, och felet visas vid anslutningen
+    return bool(nyckel and ark_id)
+
+
 def _sheets_lager(nyckel, ark_id):
     import gspread  # importeras här så lokalt läge inte kräver Google-paket
 

@@ -527,6 +527,7 @@ def test_sheets_fjun_skriver_pass_med_forald_id_och_ordning_som_text():
 def tavla(tmp_path, monkeypatch):
     """Appen med exempelkorten plus projektet 'Hallväggen' med tre pass (utan att röra riktiga arket)."""
     monkeypatch.setenv("FAMILJETAVLA_LAGE", "lokal")
+    monkeypatch.delenv("APP_LOSENORD", raising=False)  # testerna ska inte påverkas av ens egen miljö
     monkeypatch.setenv("FAMILJETAVLA_FIL", str(tmp_path / "kort.json"))
     st.cache_resource.clear()
     lager = lagring.JsonLager(tmp_path / "kort.json")

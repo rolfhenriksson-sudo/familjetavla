@@ -10,10 +10,38 @@ import html
 
 import streamlit as st
 
+import inloggning
 import kort as k
 import lagring
 
 st.set_page_config(page_title="Familjetavlan", page_icon="🗂️", layout="wide")
+
+# ---------------------------------------------------------------- inloggning
+
+
+def losenordsparr():
+    """Stoppar sidan tills rätt lösenord skrivits. Körs före all annan kod, och därmed före
+    anslutningen till lagret. Är APP_LOSENORD inte satt visas ingen ruta."""
+    losenord = inloggning.las_losenord(st.secrets)
+    if losenord is None:
+        if lagring.ar_sheets_lage(st.secrets):
+            st.caption("⚠️ Ingen lösenordsskydd är aktivt.")
+        return
+    if st.session_state.get("inloggad") is True:
+        return
+    st.title("🔒 Familjetavlan")
+    with st.form("inloggning"):
+        inmatat = st.text_input("Lösenord", type="password")
+        skickat = st.form_submit_button("Logga in")
+    if skickat:
+        if inloggning.losenord_ratt(inmatat, losenord):
+            st.session_state["inloggad"] = True
+            st.rerun()
+        st.error("Fel lösenord.")
+    st.stop()
+
+
+losenordsparr()
 
 # ---------------------------------------------------------------- lagring
 

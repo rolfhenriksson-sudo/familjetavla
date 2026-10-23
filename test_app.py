@@ -9,6 +9,7 @@ import kort as k
 @pytest.fixture
 def app(tmp_path, monkeypatch):
     monkeypatch.setenv("FAMILJETAVLA_LAGE", "lokal")
+    monkeypatch.delenv("APP_LOSENORD", raising=False)  # testerna ska inte påverkas av ens egen miljö
     monkeypatch.setenv("FAMILJETAVLA_FIL", str(tmp_path / "kort.json"))
     st.cache_resource.clear()  # appen cachar lagret, och varje test ska ha sitt eget
     at = AppTest.from_file("app.py", default_timeout=30)

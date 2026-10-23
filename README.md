@@ -71,6 +71,33 @@ med `förälder_id` = projektets `id` och `ordning` = 1, 2, 3 …
    passen och därefter projektraden.
 
 
+## Lösenordsskydd
+
+Appen kan skyddas med ett enda gemensamt lösenord. Det läses ur hemligheten/miljövariabeln
+`APP_LOSENORD` (samma mönster som övriga hemligheter).
+
+- **Är `APP_LOSENORD` satt** visas bara en lösenordsruta. Inget annat innehåll visas och inget
+  läses från arket förrän rätt lösenord är inskrivet. Lyckad inloggning gäller resten av
+  sessionen (webbläsarfliken). Laddar du om sidan helt eller öppnar appen på nytt får du skriva
+  lösenordet igen.
+- **Är den inte satt** körs appen utan ruta, så lokalt läge och Codespaces fungerar som förut.
+  Körs appen mot Google Sheets utan lösenord visas en diskret rad överst:
+  *"⚠️ Ingen lösenordsskydd är aktivt."*
+- Ett tomt värde räknas som "inte satt". Lösenordet jämförs med `hmac.compare_digest`.
+  Lägg aldrig lösenordet i koden eller i repot.
+
+**Codespaces:** *Settings → Codespaces → Secrets → New secret*, namn `APP_LOSENORD`, värdet är
+lösenordet, och ge den åtkomst till repot `familjetavla`. Starta om codespacet.
+
+**Streamlit Community Cloud:** appens *Settings → Secrets*, lägg till en rad (utanför
+`[gcp_service_account]`, helst överst):
+
+```toml
+APP_LOSENORD = "ditt-lösenord"
+```
+
+**Lokalt:** samma rad i `.streamlit/secrets.toml`, eller `APP_LOSENORD=... streamlit run app.py`.
+
 ## Prova direkt i Codespaces (ingen inloggning)
 
 1. Öppna repot på GitHub → **Code** → **Codespaces** → **Create codespace on main**.
@@ -123,6 +150,7 @@ Starta sedan om codespacet (eller skapa ett nytt). Hemligheter läses bara in vi
 
 ```toml
 ark_id = "ARKETS-ID"
+APP_LOSENORD = "ditt-lösenord"  # valfritt, se Lösenordsskydd
 
 [gcp_service_account]
 type = "service_account"
@@ -161,6 +189,7 @@ direkt i fliken `Aktiviteter`:
 |---|---|
 | `kort.py` | Ren logik: kort, flytt, färger, regler, validering, projekt och pass (status, ordning, framsteg) |
 | `lagring.py` | `JsonLager` (lokalt) och `SheetsLager` (Google Sheets) med samma gränssnitt |
+| `inloggning.py` | Lösenordsspärren (läser `APP_LOSENORD`, jämför i konstant tid) |
 | `app.py` | Det som syns på skärmen |
 | `test_*.py` | Tester med pytest. De körs automatiskt på GitHub (fliken *Actions*) |
 
