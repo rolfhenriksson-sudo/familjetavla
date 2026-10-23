@@ -14,7 +14,15 @@ och datan lagras i ett Google Sheet som även Fänrik Fjun kan läsa och skriva 
   återkommande = ljus lavendel.
 - **Påminnelser och återkommande kort** läggs alltid direkt i *Påbörjade*. Ett återkommande
   kort blir ett *nytt* kort varje gång, så gamla kort kan rensas bort från *Avslutade*.
-- **Flytta** korten med pilknapparna, **ta bort** med papperskorgen, eller **🧹 Rensa avslutade**.
+- **Flytta** korten med pilknapparna, **redigera** med pennan ✏️, **ta bort** med papperskorgen,
+  eller **🧹 Rensa avslutade**.
+- **Redigera** öppnar en dialog där du kan ändra titel, beskrivning, typ, ansvarig, start- och
+  slutdatum (slutdatum får inte ligga före startdatum) samt texten för återkommande kort.
+  Bara de fält du ändrar skrivs, och bara på kortets egen rad i arket. Status, `avslutad_datum`,
+  `förälder_id`, `ordning` och `skapad_av` rörs aldrig, och det Fjun ändrat i andra kolumner
+  sedan appen läste arket skrivs inte över. Byter du typ på ett kort i *Nya* till påminnelse
+  eller återkommande flyttas det till *Påbörjade*. Påbörjade och avslutade kort blir kvar
+  där de är.
 - **Mobil:** välj *Visa som → Flikar*, så får du en flik per kolumn i stället för tre kolumner.
 - **Appen visar och ändrar bara arket.** Själva påminnelseutskicken sköter Fänrik Fjun
   med egna rutiner.
@@ -115,7 +123,7 @@ direkt i fliken `Aktiviteter`:
 | `app.py` | Det som syns på skärmen |
 | `test_*.py` | Tester med pytest. De körs automatiskt på GitHub (fliken *Actions*) |
 
-Appen ändrar en rad i taget i arket (lägg till, uppdatera, ta bort) i stället för att skriva
+Appen ändrar en rad i taget i arket (lägg till, uppdatera, redigera enskilda fält, ta bort) i stället för att skriva
 om allt, så ändringar som Fjun gör samtidigt skrivs inte över.
 
 Lokalt, om du vill: `pip install -r requirements.txt`, sedan `pytest -v` och `streamlit run app.py`.

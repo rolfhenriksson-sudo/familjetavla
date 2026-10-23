@@ -112,16 +112,67 @@ def kort_html(kort):
     )
 
 
+def _datum_eller_none(text):
+    try:
+        return k.tolka_datum(text)
+    except ValueError:
+        return None
+
+
+@st.dialog("Redigera kort")
+def redigera_dialog(kort):
+    """Formulär för att ändra ett befintligt kort. Bara ändrade fält skrivs till arket."""
+    id_ = kort["id"]
+    typer = k.TYPER + ([kort["typ"]] if kort["typ"] not in k.TYPER else [])
+    ansvariga = k.ANVANDARE + ([kort["ansvarig"]] if kort["ansvarig"] and kort["ansvarig"] not in k.ANVANDARE else [])
+    with st.form(f"redigera_{id_}"):
+        titel = st.text_input("Titel", value=kort["titel"])
+        beskrivning = st.text_area("Beskrivning", value=kort["beskrivning"])
+        typ = st.selectbox("Typ", typer, index=typer.index(kort["typ"]) if kort["typ"] in typer else 0)
+        st.caption("Ett nytt kort som får typen påminnelse eller återkommande flyttas till Påbörjade. "
+                   "Påbörjade och avslutade kort blir kvar där de är.")
+        ansvarig = st.selectbox(
+            "Ansvarig", ansvariga,
+            index=ansvariga.index(kort["ansvarig"]) if kort["ansvarig"] in ansvariga else 0,
+        )
+        kol1, kol2 = st.columns(2)
+        start = kol1.date_input("Startdatum (valfritt)", value=_datum_eller_none(kort["startdatum"]),
+                                format="YYYY-MM-DD")
+        slut = kol2.date_input("Slutdatum (valfritt)", value=_datum_eller_none(kort["slutdatum"]),
+                               format="YYYY-MM-DD")
+        ogiltiga = [t for t in (kort["startdatum"], kort["slutdatum"]) if t and _datum_eller_none(t) is None]
+        if ogiltiga:
+            st.caption("Ogiltigt datum i arket: " + ", ".join(ogiltiga)
+                       + ". Välj ett nytt datum, annars töms fältet när du sparar.")
+        aterkommande = st.text_input(
+            "Återkommande (gäller bara typen återkommande, t.ex. 'varje måndag')",
+            value=kort["återkommande"],
+        )
+        if st.form_submit_button("Spara"):
+            try:
+                andringar = lagring.redigera_kort(
+                    lager, kort, titel, beskrivning, typ, ansvarig,
+                    start or "", slut or "", aterkommande)
+            except ValueError as fel:
+                st.warning(str(fel))
+            except Exception as fel:
+                st.error(f"Det gick inte att spara: {fel}")
+            else:
+                st.rerun()
+
+
 def rita_kort(kort):
     with st.container(key=f"kort_{kort['id']}"):
         st.markdown(kort_html(kort), unsafe_allow_html=True)
-        vanster, hoger, radera = st.columns(3)
+        vanster, hoger, redigera, radera = st.columns(4)
         if vanster.button("⬅️", key=f"v_{kort['id']}", disabled=not k.kan_flytta(kort, -1),
                           help="Flytta åt vänster"):
             utfor(lambda: lager.uppdatera(k.flytta(kort, -1)))
         if hoger.button("➡️", key=f"h_{kort['id']}", disabled=not k.kan_flytta(kort, 1),
                         help="Flytta åt höger"):
             utfor(lambda: lager.uppdatera(k.flytta(kort, 1)))
+        if redigera.button("✏️", key=f"e_{kort['id']}", help="Redigera kortet"):
+            redigera_dialog(kort)
         if radera.button("🗑️", key=f"r_{kort['id']}", help="Ta bort kortet"):
             utfor(lambda: lager.ta_bort(kort["id"]))
 

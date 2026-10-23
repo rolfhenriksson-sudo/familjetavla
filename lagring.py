@@ -25,6 +25,12 @@ class LagerFel(Exception):
     """Fel med lagringen, med ett förklarande meddelande på svenska."""
 
 
+def _kontrollera_andringar(andringar):
+    okanda = [f for f in andringar if f not in k.FALT or f == "id"]
+    if okanda:
+        raise LagerFel("Kan inte ändra fälten: " + ", ".join(okanda))
+
+
 class Lager:
     """Gränssnittet som appen använder. Alla kort är dictar enligt kort.FALT."""
 
@@ -38,6 +44,15 @@ class Lager:
 
     def uppdatera(self, kort):
         """Skriver över kortet som har samma id."""
+        raise NotImplementedError
+
+    def andra_falt(self, kort_id, andringar):
+        """Ändrar bara de angivna fälten på kortet, och bara på den raden.
+
+        Läser kortets senaste version först, så att allt annat (till exempel
+        sådant Fänrik Fjun ändrat sedan appen läste arket) bevaras.
+        Returnerar det uppdaterade kortet.
+        """
         raise NotImplementedError
 
     def ta_bort(self, kort_id):
@@ -107,6 +122,16 @@ class JsonLager(Lager):
         if not any(x["id"] == kort["id"] for x in kortlista):
             raise LagerFel(f"Hittar inget kort med id {kort['id']}")
         self._skriv([k.normalisera(kort) if x["id"] == kort["id"] else x for x in kortlista])
+
+    def andra_falt(self, kort_id, andringar):
+        _kontrollera_andringar(andringar)
+        kortlista = self._las()
+        traff = [x for x in kortlista if x["id"] == kort_id]
+        if not traff:
+            raise LagerFel(f"Hittar inget kort med id {kort_id}")
+        nytt = k.normalisera({**traff[0], **andringar})
+        self._skriv([nytt if x["id"] == kort_id else x for x in kortlista])
+        return nytt
 
     def ta_bort(self, kort_id):
         self._skriv([x for x in self._las() if x["id"] != kort_id])
@@ -186,6 +211,18 @@ class SheetsLager(Lager):
             values=[rad], range_name=f"A{nr}:{slut}{nr}", value_input_option="RAW"
         )
 
+    def andra_falt(self, kort_id, andringar):
+        _kontrollera_andringar(andringar)
+        nr, gammal = self._hitta_rad(kort_id)  # färsk läsning av just den här raden
+        # Orörda kolumner skrivs tillbaka exakt som de stod i arket
+        rad = [str(andringar[r]) if r in andringar else gammal.get(r, "")
+               for r in self.rubriker]
+        slut = _kolumnbokstav(len(self.rubriker))
+        self.flik.update(
+            values=[rad], range_name=f"A{nr}:{slut}{nr}", value_input_option="RAW"
+        )
+        return k.normalisera({**gammal, **andringar})
+
     def ta_bort(self, kort_id):
         self.flik.delete_rows(self._radnummer(kort_id))
 
@@ -203,6 +240,23 @@ def _kolumnbokstav(antal):
         antal, rest = divmod(antal - 1, 26)
         bokstav = chr(65 + rest) + bokstav
     return bokstav
+
+
+# ---------------------------------------------------------------- redigera
+
+def redigera_kort(lager, kort, titel, beskrivning, typ, ansvarig,
+                  startdatum="", slutdatum="", aterkommande=""):
+    """Validerar och sparar en redigering av ett kort.
+
+    Bara de fält som faktiskt ändrats skrivs, och bara på kortets egen rad.
+    Ogiltig inmatning ger ValueError (svenskt meddelande), och då skrivs inget.
+    Returnerar dicten med ändrade fält (tom om inget ändrades).
+    """
+    andringar = k.redigera(kort, titel, beskrivning, typ, ansvarig,
+                           startdatum, slutdatum, aterkommande)
+    if andringar:
+        lager.andra_falt(kort["id"], andringar)
+    return andringar
 
 
 # ---------------------------------------------------------------- val av lager

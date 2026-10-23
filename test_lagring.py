@@ -39,6 +39,41 @@ def test_json_lager_uppdatera_okant_id_ger_fel(tmp_path):
         lager.uppdatera(k.nytt_kort("X", "", "privat"))
 
 
+def test_json_lager_andra_falt_ändrar_bara_valda_fält_och_bara_ett_kort(tmp_path):
+    lager = lagring.JsonLager(tmp_path / "k.json", med_exempel=False)
+    a = {**k.nytt_kort("A", "", "privat"), "förälder_id": "p1", "ordning": "2", "skapad_av": "fjun"}
+    b = k.nytt_kort("B", "", "jobb")
+    lager.lagg_till(a)
+    lager.lagg_till(b)
+    ny = lager.andra_falt(a["id"], {"titel": "A2", "slutdatum": "2026-12-01"})
+    assert ny["titel"] == "A2"
+    kvar_a, kvar_b = lager.alla()
+    assert kvar_a == {**a, "titel": "A2", "slutdatum": "2026-12-01"}
+    assert kvar_b == b
+
+
+def test_json_lager_andra_falt_bevarar_det_någon_annan_ändrat_sedan_vi_läste(tmp_path):
+    lager = lagring.JsonLager(tmp_path / "k.json", med_exempel=False)
+    kort = k.nytt_kort("A", "", "privat")
+    lager.lagg_till(kort)
+    lager.uppdatera({**kort, "ordning": "7", "status": "påbörjad"})  # t.ex. Fjun
+    lager.andra_falt(kort["id"], {"titel": "Ny"})
+    assert lager.alla()[0]["ordning"] == "7" and lager.alla()[0]["status"] == "påbörjad"
+
+
+def test_json_lager_andra_falt_okant_id_och_otillåtna_fält(tmp_path):
+    lager = lagring.JsonLager(tmp_path / "k.json", med_exempel=False)
+    kort = k.nytt_kort("A", "", "privat")
+    lager.lagg_till(kort)
+    with pytest.raises(lagring.LagerFel):
+        lager.andra_falt("finns-inte", {"titel": "X"})
+    with pytest.raises(lagring.LagerFel):
+        lager.andra_falt(kort["id"], {"id": "nytt"})
+    with pytest.raises(lagring.LagerFel):
+        lager.andra_falt(kort["id"], {"påhittat": "x"})
+    assert lager.alla() == [kort]
+
+
 def test_json_lager_ta_bort_flera(tmp_path):
     lager = lagring.JsonLager(tmp_path / "k.json", med_exempel=False)
     kort = [k.nytt_kort(t, "", "privat") for t in "ABC"]
@@ -144,6 +179,58 @@ def test_sheets_lager_uppdatera_okant_id_ger_fel():
         lager.uppdatera(k.nytt_kort("X", "", "privat"))
 
 
+def test_sheets_lager_andra_falt_skriver_en_rad_och_bevarar_övriga_kolumner():
+    rubriker = k.FALT + ["min_extra"]
+    flik = LatsasFlik(rubriker, [
+        rad(id="a", titel="A", status="ny") + ["extra a"],
+        rad(id="b", titel="B", status="påbörjad", förälder_id="p1", ordning="3",
+            återkommande="varje lördag", skapad_av="fjun", avslutad_datum="2026-10-01",
+            beskrivning="gammal") + ["extra b"],
+        rad(id="c", titel="C", status="ny") + ["extra c"],
+    ])
+    före = [list(r) for r in flik.rader]
+    lager = lagring.SheetsLager(flik)
+    ny = lager.andra_falt("b", {"titel": "B2", "beskrivning": "ny text", "slutdatum": "2026-12-01"})
+    assert flik.anrop == [("update", "A3:N3", "RAW")]  # exakt en rad, en skrivning
+    assert flik.rader[1] == före[1] and flik.rader[3] == före[3]  # andra rader orörda
+    efter = dict(zip(rubriker, flik.rader[2]))
+    assert efter["titel"] == "B2" and efter["beskrivning"] == "ny text"
+    assert efter["slutdatum"] == "2026-12-01"
+    for orord in ("id", "status", "förälder_id", "ordning", "återkommande",
+                  "skapad_av", "avslutad_datum", "min_extra"):
+        assert efter[orord] == dict(zip(rubriker, före[2]))[orord]
+    assert ny["titel"] == "B2" and ny["förälder_id"] == "p1"
+
+
+def test_sheets_lager_andra_falt_använder_färsk_rad_och_rätt_radnummer():
+    flik = LatsasFlik(k.FALT, [rad(id="a", titel="A"), rad(id="b", titel="B")])
+    lager = lagring.SheetsLager(flik)
+    # Någon (Fjun) lägger in en rad ovanför och ändrar ordning på b efter att appen läste arket
+    flik.rader.insert(1, rad(id="x", titel="X"))
+    flik.rader[3][k.FALT.index("ordning")] = "9"
+    lager.andra_falt("b", {"titel": "B2"})
+    assert flik.anrop == [("update", "A4:M4", "RAW")]
+    assert flik.rader[3][k.FALT.index("ordning")] == "9"
+    assert flik.rader[3][k.FALT.index("titel")] == "B2"
+
+
+def test_sheets_lager_andra_falt_rör_inte_tom_status_eller_blanksteg_i_andra_kolumner():
+    flik = LatsasFlik(k.FALT, [rad(id="a", titel="A", beskrivning="  med blanksteg  ")])
+    lagring.SheetsLager(flik).andra_falt("a", {"titel": "A2"})
+    assert flik.rader[1][k.FALT.index("status")] == ""
+    assert flik.rader[1][k.FALT.index("beskrivning")] == "  med blanksteg  "
+
+
+def test_sheets_lager_andra_falt_okant_id_och_otillåtna_fält():
+    flik = LatsasFlik(k.FALT, [rad(id="a", titel="A")])
+    lager = lagring.SheetsLager(flik)
+    with pytest.raises(lagring.LagerFel):
+        lager.andra_falt("saknas", {"titel": "X"})
+    with pytest.raises(lagring.LagerFel):
+        lager.andra_falt("a", {"id": "annat"})
+    assert flik.anrop == []
+
+
 def test_sheets_lager_ta_bort_flera_underifran():
     flik = LatsasFlik(k.FALT, [rad(id=str(i), titel=f"T{i}") for i in range(1, 5)])
     lager = lagring.SheetsLager(flik)
@@ -197,3 +284,80 @@ def test_valj_lager_med_uppgifter_valjer_sheets(monkeypatch):
     miljo = {lagring.ENV_ARK_ID: "id1", lagring.ENV_NYCKEL: json.dumps({"a": 1})}
     assert lagring.valj_lager({}, miljo) == "SHEETS"
     assert anrop == {"nyckel": {"a": 1}, "ark": "id1"}
+
+
+# ------------------------------------------------------------- redigera_kort (båda lagren)
+
+def _lager_json(tmp_path):
+    return lagring.JsonLager(tmp_path / "k.json", med_exempel=False)
+
+
+def _lager_sheets(tmp_path):
+    return lagring.SheetsLager(LatsasFlik(k.FALT))
+
+
+@pytest.fixture(params=[_lager_json, _lager_sheets], ids=["json", "sheets"])
+def lager(request, tmp_path):
+    return request.param(tmp_path)
+
+
+def _lagg(lager, **falt):
+    kort = {**k.nytt_kort("Original", "Besk", "privat", slutdatum="2026-10-20"),
+            "förälder_id": "p1", "ordning": "4", "skapad_av": "fjun", **falt}
+    lager.lagg_till(kort)
+    return k.normalisera(kort)
+
+
+def test_redigera_kort_sparar_andringar_och_bevarar_resten(lager):
+    kort = _lagg(lager)
+    annat = _lagg(lager, id="annat001", titel="Annat kort")
+    andringar = lagring.redigera_kort(
+        lager, kort, "Ny titel", "Ny besk", "jobb", "Rolf", "2026-10-01", "2026-10-30")
+    assert set(andringar) == {"titel", "beskrivning", "typ", "startdatum", "slutdatum"}
+    sparat = {x["id"]: x for x in lager.alla()}
+    assert sparat[kort["id"]] == {**kort, "titel": "Ny titel", "beskrivning": "Ny besk",
+                                  "typ": "jobb", "startdatum": "2026-10-01",
+                                  "slutdatum": "2026-10-30"}
+    assert sparat[kort["id"]]["förälder_id"] == "p1" and sparat[kort["id"]]["ordning"] == "4"
+    assert sparat["annat001"] == annat  # inget annat kort rördes
+
+
+def test_redigera_kort_ogiltigt_slutdatum_sparar_ingenting(lager):
+    kort = _lagg(lager)
+    fore = lager.alla()
+    with pytest.raises(ValueError, match="Slutdatum"):
+        lagring.redigera_kort(lager, kort, "X", "", "privat", "Rolf", "2026-10-10", "2026-10-01")
+    assert lager.alla() == fore
+
+
+def test_redigera_kort_utan_andring_skriver_inget(tmp_path):
+    flik = LatsasFlik(k.FALT)
+    lager = lagring.SheetsLager(flik)
+    kort = _lagg(lager)
+    flik.anrop.clear()
+    assert lagring.redigera_kort(lager, kort, kort["titel"], kort["beskrivning"], kort["typ"],
+                                 kort["ansvarig"], kort["startdatum"], kort["slutdatum"]) == {}
+    assert flik.anrop == []
+
+
+def test_redigera_kort_avslutat_kort_blir_kvar_vid_typbyte(lager):
+    kort = _lagg(lager, status="avslutad", avslutad_datum="2026-10-01")
+    lagring.redigera_kort(lager, kort, "Original", "Besk", "påminnelse", "Rolf", "", "2026-10-20")
+    sparat = lager.alla()[0]
+    assert sparat["typ"] == "påminnelse"
+    assert sparat["status"] == "avslutad" and sparat["avslutad_datum"] == "2026-10-01"
+
+
+def test_redigera_kort_nytt_kort_blir_paborjat_vid_byte_till_aterkommande(lager):
+    kort = _lagg(lager)
+    lagring.redigera_kort(lager, kort, "Original", "Besk", "återkommande", "Rolf", "",
+                          "2026-10-20", "varje fredag")
+    sparat = lager.alla()[0]
+    assert sparat["status"] == "påbörjad" and sparat["återkommande"] == "varje fredag"
+
+
+def test_redigera_kort_raderat_kort_ger_lagerfel(lager):
+    kort = _lagg(lager)
+    lager.ta_bort(kort["id"])
+    with pytest.raises(lagring.LagerFel):
+        lagring.redigera_kort(lager, kort, "Ny", "", "privat", "Rolf")
